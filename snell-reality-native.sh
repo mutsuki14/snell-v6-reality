@@ -2,7 +2,7 @@
 # Native sing-box on both ends: Snell v6 unsafe-raw through VLESS + REALITY.
 set -Eeuo pipefail
 umask 077
-SCRIPT_VERSION=2.2.0
+SCRIPT_VERSION=2.2.1
 SINGBOX_VERSION=1.14.4
 CADDY_VERSION=2.11.9
 CONFIG_DIR=/etc/snell-reality-native
@@ -191,7 +191,10 @@ sudo snell-reality-native share-logs  # 查看签发 / 续期日志
   --share-ip IP       分享使用的公网 IP，默认使用已配置的服务器 IP
   --share-port PORT   HTTPS 分享端口，默认 8443
 
-默认输出 Exclave 离线导入串；在 Exclave 中选择“从剪贴板导入备份”。
+默认输出 Exclave 离线导入串。0.17.68 的备份菜单默认隐藏，首次使用需开启：
+  1. “关于”中长按应用版本号，直到出现 developer mode enabled。
+  2. “设置”底部的 Experimental flags 中追加一行 enableProfileBackup=true。
+  3. 重新启动 Exclave，在配置页选择“添加服务器配置 → 备份 → 从剪贴板导入”。
 Exclave 0.17.68 不解析 snell://；此处使用其 config? 备份格式封装完整链路。
 只有显式使用 --with-share / https-share 才安装 HTTPS 服务，另需 TCP 80 和分享端口。
 
@@ -313,7 +316,12 @@ show_exclave() {
     render_exclave_export "$CONFIG_DIR/state.json" "$CONFIG_DIR/clients"
     printf 'Exclave 离线导入串（含 Snell v6 + REALITY，无需订阅或 HTTPS）：\n'
     cat "$CONFIG_DIR/clients/exclave-import.txt"
-    printf '\n复制上面完整的 config? 行，在 Exclave 中选择“从剪贴板导入备份”。\n'
+    printf '\nExclave 0.17.68 的备份菜单默认隐藏，首次使用请先开启：\n'
+    printf '  1. 打开“关于”，长按应用版本号，直到出现 developer mode enabled。\n'
+    printf '  2. 打开“设置”底部的 Experimental flags，保留已有内容，另起一行添加：\n'
+    printf '     enableProfileBackup=true\n'
+    printf '  3. 保存后重新启动 Exclave，使配置页菜单刷新。\n'
+    printf '复制上面完整的 config? 行，在配置页选择“添加服务器配置 → 备份 → 从剪贴板导入”。\n'
     printf '这是 Exclave 0.17.68 的备份格式；普通节点导入入口不解析此格式，也不支持 snell://。\n'
     printf '导入文件：%s/clients/exclave-import.txt；只分享给需要使用的设备。\n' "$CONFIG_DIR"
 }

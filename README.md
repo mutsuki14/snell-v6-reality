@@ -82,11 +82,17 @@ curl -fL --proto '=https' --tlsv1.2 \
 sudo bash snell-reality-native.sh share
 ```
 
-1. 复制输出中以 `config?` 开头的完整一行，不要复制解释文字。
-2. 在 Exclave 中选择**从剪贴板导入备份**，使用带“备份”的入口。
-3. 选择新导入的 `Snell-v6-REALITY` 配置并连接。
+**Exclave 0.17.68 默认隐藏了“备份”菜单，首次使用必须先开启：**
 
-普通“从剪贴板导入”只解析节点链接等格式，不能解析这份备份。以后执行 `sudo snell-reality-native share` 可再次显示导入串。脚本也保存了 `/etc/snell-reality-native/clients/exclave-import.txt`，可通过 Exclave 的“从文件导入备份”入口使用。
+1. 打开 Exclave **关于**，**长按应用版本号 `0.17.68` 那一行**，直到提示 `developer mode enabled`。
+2. 回到**设置**，滚动到底部，打开 **Experimental flags**。保留已有内容，另起一行添加 `enableProfileBackup=true`，然后保存。
+3. 重新启动 Exclave，让配置页重新读取这个开关。
+4. 复制脚本输出中以 `config?` 开头的完整一行，不要复制解释文字。
+5. 在**配置页 → 添加服务器配置（右上角添加图标）→ 备份 → 从剪贴板导入**，然后选择新导入的 `Snell-v6-REALITY` 配置连接。
+
+开关使用 `key=value` 格式，大小写必须一致；“关于”中再次长按版本号会关闭开发者模式，看到 `enabled` 后即可停止操作。此备份入口位于**配置页的添加菜单**，与侧边栏的应用数据备份/恢复功能不同。
+
+添加菜单最外层的“从剪贴板导入”只解析节点链接等格式，不能解析这份备份。以后执行 `sudo snell-reality-native share` 可再次显示导入串。脚本也保存了 `/etc/snell-reality-native/clients/exclave-import.txt`，可通过**配置页 → 添加服务器配置 → 备份 → 从文件导入**使用。已经生成的 `config?` 导入串仍有效，无需重装 VPS 或重新生成密钥。
 
 `client-exclave.json` 是 Exclave 自定义配置内容；不要把它当成 sing-box 配置，也不要通过普通节点列表解析入口导入，否则可能丢失代理链。Exclave 的自定义配置模式使用导出的 DNS 与路由设置。
 
@@ -262,6 +268,9 @@ Exclave 验证需要 Java 11+ 的源文件启动能力、官方 Kryo 5.7.1 JAR�
 - [Exclave 备份编码格式](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/fmt/UniversalFmt.kt)
 - [Exclave 自定义配置备份字段](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/fmt/internal/ConfigBean.java)
 - [Exclave 剪贴板备份导入实现](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/ui/ConfigurationFragment.kt)
+- [Exclave 长按应用版本号开启开发者模式](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/ui/AboutFragment.kt#L137)
+- [Experimental flags 仅在开发者模式下显示](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/ui/SettingsPreferenceFragment.kt#L614)
+- [备份菜单受 enableProfileBackup 开关控制](https://github.com/ExclaveNetwork/Exclave/blob/0.17.68/app/src/main/java/io/nekohasekai/sagernet/ui/ConfigurationFragment.kt#L1058)
 - [Let's Encrypt：IP 证书与短期证书正式可用](https://letsencrypt.org/2026/01/15/6day-and-ip-general-availability/)
 - [Caddy 2.11.9 官方发布](https://github.com/caddyserver/caddy/releases/tag/v2.11.9)
 - [Caddy ACME 配置：profile 与挑战方式](https://caddyserver.com/docs/json/apps/tls/automation/policies/issuers/acme/)
