@@ -16,7 +16,16 @@ Snell 与 REALITY 由 sing-box 的两个原生协议配置串联，通过 `detou
 
 ## 安装
 
-支持 Debian 11+ / Ubuntu 22.04+，amd64 / arm64，运行中的 systemd。上传 `snell-reality-native.sh` 到 VPS 后执行：
+支持 Debian 11+ / Ubuntu 22.04+，amd64 / arm64，运行中的 systemd。在 VPS 上下载并安装，将最后的地址替换为自己的公网 IP：
+
+```bash
+curl -fL --proto '=https' --tlsv1.2 \
+  https://raw.githubusercontent.com/mutsuki14/snell-v6-reality/main/snell-reality-native.sh \
+  -o snell-reality-native.sh && \
+sudo bash snell-reality-native.sh install --server 你的VPS公网IP
+```
+
+如果已经下载或上传了脚本，直接执行：
 
 ```bash
 sudo bash snell-reality-native.sh install --server 你的VPS公网IP
