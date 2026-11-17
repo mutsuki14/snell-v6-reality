@@ -57,7 +57,7 @@ fi
 
 trap 'rm -rf -- "$TEST_DIR"' EXIT
 mkdir -p "$CONFIG_DIR/clients" "$BIN_DIR" "$UNIT_DIR"
-printf '{"schema":2,"engine":"sing-box","server":"8.8.8.8","port":443,"snell_port":23456,"private_key":"fixture-secret","profile_url":""}\n' > "$CONFIG_DIR/state.json"
+printf '{"schema":2,"engine":"sing-box","server":"8.8.8.8","port":443,"snell_port":23456,"private_key":"fixture-private","psk":"fixture-secret","sni":"example.com","uuid":"00000000-0000-4000-8000-000000000001","public_key":"fixture-public","short_id":"12345678","profile_url":""}\n' > "$CONFIG_DIR/state.json"
 printf 'fixture server configuration\n' > "$CONFIG_DIR/server.json"
 printf '{"profile":"tun","password":"fixture-secret"}\n' > "$CONFIG_DIR/clients/client-tun.json"
 printf '{"profile":"mixed","password":"fixture-secret"}\n' > "$CONFIG_DIR/clients/client-mixed.json"
@@ -92,6 +92,7 @@ jq -S . "$CONFIG_DIR/state.json" > "$TEST_DIR/state-after"
 jq -S . "$TEST_DIR/original-proxy/state.json" > "$TEST_DIR/state-before"
 cmp "$TEST_DIR/state-before" "$TEST_DIR/state-after"
 cmp "$TEST_DIR/original-proxy/server.json" "$CONFIG_DIR/server.json"
-diff -r "$TEST_DIR/original-proxy/clients" "$CONFIG_DIR/clients"
+cmp "$TEST_DIR/original-proxy/clients/client-tun.json" "$CONFIG_DIR/clients/client-tun.json"
+cmp "$TEST_DIR/original-proxy/clients/client-mixed.json" "$CONFIG_DIR/clients/client-mixed.json"
 if grep -Fq "$UNIT" "$TEST_DIR/systemctl.log"; then exit 1; fi
 printf 'PASS share-off clears the owned URL and preserves proxy files and service state\n'

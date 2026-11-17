@@ -2,7 +2,7 @@
 # Native sing-box on both ends: Snell v6 unsafe-raw through VLESS + REALITY.
 set -Eeuo pipefail
 umask 077
-SCRIPT_VERSION=2.1.0
+SCRIPT_VERSION=2.2.0
 SINGBOX_VERSION=1.14.4
 CADDY_VERSION=2.11.9
 CONFIG_DIR=/etc/snell-reality-native
@@ -32,7 +32,7 @@ SHARE_USER=snell-reality-share
 SHARE_UNIT=snell-reality-share.service
 SHARE_IP=''
 SHARE_PORT=''
-NO_SHARE=0
+NO_SHARE=1
 SHARE_TRANSACTION=0
 SHARE_CREATED_USER=0
 
@@ -169,11 +169,12 @@ cleanup() {
 usage() {
     cat <<'EOF'
 原生 sing-box：Snell v6 unsafe-raw + VLESS/REALITY
-服务端一个 sing-box 进程；客户端一个 sing-box 配置，无需 Xray。
+服务端一个 sing-box 进程；客户端可使用 sing-box 或 Exclave，无需额外桥接。
 
 sudo bash snell-reality-native.sh install --server VPS公网IP
 sudo snell-reality-native {show|check|status|start|stop|restart|logs|upgrade|uninstall}
-sudo snell-reality-native share       # 纯 IP HTTPS 分享；保留现有代理与密钥
+sudo snell-reality-native share       # Exclave 离线导入串；无需 HTTPS
+sudo snell-reality-native https-share # 可选：启用纯 IP HTTPS 配置下载
 sudo snell-reality-native share-off   # 关闭并移除本机分享服务
 sudo snell-reality-native share-logs  # 查看签发 / 续期日志
 
@@ -185,12 +186,14 @@ sudo snell-reality-native share-logs  # 查看签发 / 续期日志
   --snell-port PORT   Snell 回环监听端口，默认 23456
   --socks-port PORT   桌面客户端本地代理端口，默认 1080
   --profile-url URL   可选：你自己的 HTTPS 完整配置下载地址
-  --no-share          仅安装代理，不自动启用 IP HTTPS 分享
+  --with-share        额外启用 IP HTTPS 远程配置下载（默认不开启）
+  --no-share          不启用 HTTPS 分享；保留此选项兼容旧命令
   --share-ip IP       分享使用的公网 IP，默认使用已配置的服务器 IP
   --share-port PORT   HTTPS 分享端口，默认 8443
 
-默认安装会启用 HTTPS 分享；另需放行 TCP 80（IP 证书签发/续期）和分享端口。
-使用现有 --profile-url 或 --no-share 时不创建本机分享服务。
+默认输出 Exclave 离线导入串；在 Exclave 中选择“从剪贴板导入备份”。
+Exclave 0.17.68 不解析 snell://；此处使用其 config? 备份格式封装完整链路。
+只有显式使用 --with-share / https-share 才安装 HTTPS 服务，另需 TCP 80 和分享端口。
 
 生成远程配置导入链接（不会上传文件或启动订阅服务器）：
   bash snell-reality-native.sh import-link --url https://你的站点/随机路径/client-tun.json
@@ -205,6 +208,7 @@ parse_options() {
         case "$1" in
             --yes) ASSUME_YES=1; shift; continue ;;
             --no-share) NO_SHARE=1; shift; continue ;;
+            --with-share) NO_SHARE=0; shift; continue ;;
             --server|--port|--sni|--listen|--snell-port|--socks-port|--profile-url|--url|--share-ip|--share-port)
                 (($# >= 2)) && [[ -n $2 && $2 != --* ]] || die "$1 缺少参数。"
                 case "$1" in
@@ -238,6 +242,80 @@ if (url.scheme != 'https' or not url.hostname or url.username or url.password or
     sys.exit('请提供无用户名、密码、片段和空白字符的 HTTPS 配置下载地址。')
 print('sing-box://import-remote-profile?' + urllib.parse.urlencode({'url': value}) + '#Snell-REALITY')
 PY
+}
+
+render_exclave_export() {
+    # Exclave 0.17.68: ConfigBean + AbstractBean, Kryo 5.7.1, zlib and Base64.
+    # This is a self-contained clipboard backup, not a URI or subscription URL.
+    python3 - "$1" "$2" <<'PY'
+import base64, ipaddress, json, os, pathlib, struct, sys, zlib
+s = json.load(open(sys.argv[1]))
+out = pathlib.Path(sys.argv[2])
+out.mkdir(parents=True, exist_ok=True)
+dns_servers = ['1.1.1.1']
+try:
+    ipaddress.ip_address(s['server'])
+except ValueError:
+    # Resolve the proxy hostname independently to avoid a recursive proxy dial.
+    dns_servers.insert(0, {'address': 'localhost', 'domains': ['full:' + s['server']], 'skipFallback': True})
+config = {
+    'log': {'loglevel': 'warning'},
+    'dns': {'servers': dns_servers},
+    'outbounds': [
+        {'tag': 'snell-out', 'protocol': 'snell',
+         'settings': {'address': '127.0.0.1', 'port': s['snell_port'],
+                      'version': 6, 'psk': s['psk'], 'mode': 'unsafe-raw', 'reuse': True},
+         'proxySettings': {'tag': 'reality-out', 'transportLayer': True}},
+        {'tag': 'reality-out', 'protocol': 'vless',
+         'settings': {'vnext': [{'address': s['server'], 'port': s['port'],
+                                'users': [{'id': s['uuid'], 'encryption': 'none'}]}]},
+         'streamSettings': {'network': 'tcp', 'security': 'reality',
+                            'realitySettings': {'serverName': s['sni'], 'publicKey': s['public_key'],
+                                                'shortId': s['short_id'], 'fingerprint': 'chrome'}}},
+        {'tag': 'dns-out', 'protocol': 'dns',
+         'settings': {'address': '1.1.1.1', 'port': 53, 'network': 'udp'},
+         'proxySettings': {'tag': 'snell-out', 'transportLayer': True}},
+        {'tag': 'direct', 'protocol': 'freedom'}
+    ],
+    'routing': {'domainStrategy': 'AsIs', 'rules': [
+        {'type': 'field', 'inboundTag': ['dns-in'], 'outboundTag': 'dns-out'}
+    ]}
+}
+content = json.dumps(config, ensure_ascii=True, separators=(',', ':'))
+
+def kryo_string(value):
+    # All strings in this export are ASCII; JSON escapes non-ASCII credentials.
+    data = value.encode('ascii')
+    if not data:
+        return b'\x81'
+    if 1 < len(data) <= 32:
+        return data[:-1] + bytes([data[-1] | 0x80])
+    length = len(data) + 1
+    prefix = bytearray([(length & 0x3f) | 0x80 | (0x40 if length >> 6 else 0)])
+    length >>= 6
+    while length:
+        prefix.append((length & 0x7f) | (0x80 if length >> 7 else 0))
+        length >>= 7
+    return bytes(prefix) + data
+
+blob = (struct.pack('<i', 1) + kryo_string('v2ray') + kryo_string(content) + kryo_string('')
+        + struct.pack('<i', 2) + kryo_string('Snell-v6-REALITY') + struct.pack('<i', 0))
+backup = 'config?' + base64.b64encode(zlib.compress(blob, 9)).decode('ascii')
+for name, value in [('client-exclave.json', content), ('exclave-import.txt', backup)]:
+    path = out / name
+    path.write_text(value + '\n', encoding='utf-8')
+    os.chmod(path, 0o600)
+PY
+}
+
+show_exclave() {
+    require_install
+    render_exclave_export "$CONFIG_DIR/state.json" "$CONFIG_DIR/clients"
+    printf 'Exclave 离线导入串（含 Snell v6 + REALITY，无需订阅或 HTTPS）：\n'
+    cat "$CONFIG_DIR/clients/exclave-import.txt"
+    printf '\n复制上面完整的 config? 行，在 Exclave 中选择“从剪贴板导入备份”。\n'
+    printf '这是 Exclave 0.17.68 的备份格式；普通节点导入入口不解析此格式，也不支持 snell://。\n'
+    printf '导入文件：%s/clients/exclave-import.txt；只分享给需要使用的设备。\n' "$CONFIG_DIR"
 }
 
 validate_share_address() {
@@ -387,8 +465,8 @@ enable_share() {
         jq -e '.schema == 1 and (.token | test("^[0-9a-f]{48}$"))' "$SHARE_CONFIG_DIR/share.json" >/dev/null || die '分享状态文件不兼容。'
         current_ip=$(jq -r .ip "$SHARE_CONFIG_DIR/share.json")
         current_port=$(jq -r .port "$SHARE_CONFIG_DIR/share.json")
-        [[ -z $SHARE_IP || $SHARE_IP == "$current_ip" ]] || die '更换分享 IP 请先 share-off，再重新执行 share。'
-        [[ -z $SHARE_PORT || $SHARE_PORT == "$current_port" ]] || die '更换分享端口请先 share-off，再重新执行 share。'
+        [[ -z $SHARE_IP || $SHARE_IP == "$current_ip" ]] || die '更换分享 IP 请先 share-off，再重新执行 https-share。'
+        [[ -z $SHARE_PORT || $SHARE_PORT == "$current_port" ]] || die '更换分享端口请先 share-off，再重新执行 https-share。'
         SHARE_IP=$current_ip
         SHARE_PORT=$current_port
     else
@@ -440,7 +518,7 @@ enable_share() {
         if ((attempt % 6 == 0)); then info '等待 IP 证书签发及 HTTPS 就绪……'; fi
         sleep 3
     done
-    ((ready)) || die "分享服务已安装，但受信任的 HTTPS 尚未就绪；代理服务不受影响。请放行 TCP 80、$SHARE_PORT，查看 share-logs，随后重试 share。"
+    ((ready)) || die "HTTPS 服务已安装，但证书尚未就绪；代理及离线导入不受影响。请放行 TCP 80、$SHARE_PORT，查看 share-logs，随后重试 https-share。"
     url=$(share_url "$SHARE_CONFIG_DIR/share.json")
     persist_share_url "$url"
     info 'HTTPS 证书及配置内容已在 VPS 本机验证。公网访问还取决于云安全组。'
@@ -539,6 +617,7 @@ render_configs() {
       | .route.auto_detect_interface=true
       | .route.rules=[{inbound:["tun-in"],action:"sniff"},{protocol:"dns",action:"hijack-dns"}]
     ' "$out/clients/client-mixed.json" > "$out/clients/client-tun.json"
+    render_exclave_export "$state" "$out/clients"
     chmod 0600 "$out/"*.json "$out/clients/"*.json
 }
 
@@ -701,6 +780,7 @@ deploy() {
     install -m 0640 -o root -g "$SERVICE_USER" "$WORK_DIR/config/server.json" "$CONFIG_DIR/server.json"
     install -d -m 0700 "$CONFIG_DIR/clients"
     install -m 0600 "$WORK_DIR/config/clients/"*.json "$CONFIG_DIR/clients/"
+    install -m 0600 "$WORK_DIR/config/clients/exclave-import.txt" "$CONFIG_DIR/clients/exclave-import.txt"
     install -m 0644 "$WORK_DIR/units/$UNIT" "$UNIT_DIR/$UNIT"
     install -m 0755 "$WORK_DIR/manager" "$MANAGER"
     systemctl daemon-reload
@@ -721,10 +801,11 @@ deploy() {
 show_config() {
     require_install
     local url owned_url=''
-    info "服务端 / 客户端使用 sing-box $SINGBOX_VERSION；客户端无需 Xray 桥接。"
+    info "服务端使用 sing-box $SINGBOX_VERSION；导出 sing-box 配置及 Exclave 离线备份。"
     printf '入口：%s，TCP %s\n' "$(jq -r .server "$CONFIG_DIR/state.json")" "$(jq -r .port "$CONFIG_DIR/state.json")"
     printf '完整客户端配置（含凭据）：\n  %s/clients/client-mixed.json\n  %s/clients/client-tun.json\n' "$CONFIG_DIR" "$CONFIG_DIR"
     printf '桌面 SOCKS/HTTP 使用 mixed；支持 TUN 配置的客户端可导入 tun 文件。\n'
+    show_exclave
     url=$(jq -r '.profile_url // ""' "$CONFIG_DIR/state.json")
     if [[ -f $SHARE_CONFIG_DIR/share.json ]]; then owned_url=$(share_url "$SHARE_CONFIG_DIR/share.json"); fi
     if [[ -n $url ]]; then
@@ -734,11 +815,8 @@ show_config() {
         else
             printf '自定义配置地址：%s\n请确认该地址已部署完整 client-tun.json。\n' "$url"
         fi
-        printf '一键导入链接：\n'
+        printf '可选 HTTPS 远程配置导入链接（适用于支持此 URI 的 sing-box 客户端）：\n'
         make_import_link "$url"
-    else
-        printf '分享链接尚未就绪。执行 sudo snell-reality-native share 申请 IP 证书并显示链接。\n'
-        printf '也可直接导入上面的完整 JSON 文件。\n'
     fi
     printf '请在防火墙与云安全组放行 TCP %s，无需开放 Snell 回环端口或入站 UDP。\n' "$(jq -r .port "$CONFIG_DIR/state.json")"
 }
@@ -770,13 +848,13 @@ main() {
         import-link)
             [[ $# == 2 && $1 == --url ]] || die '用法：import-link --url HTTPS配置下载地址'
             make_import_link "$2"; return 0 ;;
-        install|upgrade|show|check|status|start|stop|restart|logs|uninstall|share|share-off|share-logs) ;;
+        install|upgrade|show|check|status|start|stop|restart|logs|uninstall|share|https-share|share-off|share-logs) ;;
         *) usage; die "未知命令：$action" ;;
     esac
-    if [[ $action == share ]]; then
+    if [[ $action == https-share ]]; then
         local option
         for ((option=1; option<=$#; option+=2)); do
-            [[ ${!option} == --share-ip || ${!option} == --share-port ]] || die 'share 仅接受 --share-ip 和 --share-port。'
+            [[ ${!option} == --share-ip || ${!option} == --share-port ]] || die 'https-share 仅接受 --share-ip 和 --share-port。'
         done
     elif [[ $action != install && $# -gt 0 ]]; then
         [[ $action == uninstall && $# == 1 && $1 == --yes ]] || die '这些参数仅适用于首次 install。'
@@ -799,7 +877,13 @@ main() {
             fi
             show_config ;;
         upgrade) deploy upgrade; show_config ;;
-        share) enable_share; show_config ;;
+        share)
+            require_install
+            local source_file
+            source_file=$(readlink -f -- "${BASH_SOURCE[0]}")
+            if [[ $source_file != "$MANAGER" ]]; then install -m 0755 "$source_file" "$MANAGER"; fi
+            show_exclave ;;
+        https-share) enable_share; show_config ;;
         share-off) require_install; remove_share ;;
         share-logs) require_install; flock -u 9; journalctl -u "$SHARE_UNIT" --no-pager -n 80 -f ;;
         show) show_config ;;
