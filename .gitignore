@@ -1,0 +1,13 @@
+.dev/
+research/
+__pycache__/
+*.pyc
+*.zip
+*.tar.gz
+*.pem
+*.key
+.env
+.env.*
+state.json
+server.json
+clients/
